@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QuizCard Tiểu Học - Trắc Nghiệm Thẻ Quét 4 Chiều (Plickers Style)</title>
+  <title>Trường Tiểu học Tiến Lợi - Trắc Nghiệm Thẻ Quét 4 Chiều (Plickers Style)</title>
     <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.4/dist/mqtt.min.js"></script>
@@ -371,6 +371,11 @@
             <!-- Flip Camera (Front / Back) -->
             <button id="btn-flip-camera" title="Đổi camera trước / camera sau" class="hidden px-3 py-2 rounded-xl text-xs sm:text-sm font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1">
               🔄 Đổi Camera
+            </button>
+
+            <!-- Pause / Resume Scan -->
+            <button id="btn-pause-camera" title="Tạm dừng quét để không quét nhầm" class="hidden px-3 py-2 rounded-xl text-xs sm:text-sm font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 transition-colors flex items-center gap-1">
+              ⏸️ Tạm Dừng Quét
             </button>
 
             <!-- Start / Stop Camera -->
@@ -767,6 +772,7 @@
       mqttClient: null,
       mqttClientId: null,
       broadcastChannel: null,
+      scannerPaused: false,
       currentQuestionIndex: 0,
       isAnswerRevealed: false,
       cameraActive: false,
@@ -1415,18 +1421,30 @@
     }
 
     function renderScreenCardPattern() {
-      const grid = document.getElementById('screen-card-pattern-grid');
-      if (!grid) return;
-      grid.innerHTML = '';
+      const canvas = document.getElementById('screen-card-qr-canvas');
+      const img = document.getElementById('screen-card-qr-img');
+      const qrData = `QC:${screenCardSelectedStudentId}:${screenCardSelectedAns}`;
 
-      const pattern = getStudentPattern(screenCardSelectedStudentId);
-      for (let r = 0; r < 5; r++) {
-        for (let c = 0; c < 5; c++) {
-          const isBlack = pattern[r][c] === 1;
-          const cell = document.createElement('div');
-          cell.className = isBlack ? 'bg-black w-full h-full' : 'bg-white w-full h-full';
-          grid.appendChild(cell);
-        }
+      if (img) {
+        img.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrData)}`;
+      }
+
+      if (canvas && typeof QRCode !== 'undefined' && QRCode.toCanvas) {
+        canvas.classList.remove('hidden');
+        if (img) img.classList.add('hidden');
+        QRCode.toCanvas(canvas, qrData, {
+          width: 140,
+          margin: 1,
+          color: { dark: '#000000', light: '#ffffff' }
+        }, (err) => {
+          if (err) {
+            canvas.classList.add('hidden');
+            if (img) img.classList.remove('hidden');
+          }
+        });
+      } else if (img) {
+        if (canvas) canvas.classList.add('hidden');
+        img.classList.remove('hidden');
       }
     }
 
@@ -1441,6 +1459,8 @@
       if (label) {
         label.textContent = ansLetter;
       }
+      // Re-render the QR code for the newly selected answer
+      renderScreenCardPattern();
     }
 
     function updatePhoneQuickDropdown() {
@@ -2019,6 +2039,13 @@
 
       scannerCanvas.width = scannerVideo.videoWidth || 640;
       scannerCanvas.height = scannerVideo.videoHeight || 480;
+      APP_STATE.scannerPaused = false;
+
+      const btnPause = document.getElementById('btn-pause-camera');
+      if (btnPause) {
+        btnPause.classList.remove('hidden');
+        btnPause.textContent = "⏸️ Tạm Dừng Quét";
+      }
 
       processCameraFrame();
       showToast(`Camera đã bật (${currentCameraFacing === 'environment' ? 'Camera sau' : 'Camera trước'})!`, 'success');
@@ -2055,6 +2082,9 @@
       document.getElementById('btn-start-camera').classList.remove('hidden');
       document.getElementById('btn-stop-camera').classList.add('hidden');
       document.getElementById('btn-flip-camera').classList.add('hidden');
+      const btnPause = document.getElementById('btn-pause-camera');
+      if (btnPause) btnPause.classList.add('hidden');
+      APP_STATE.scannerPaused = false;
       showToast("Đã tắt camera", 'info');
     }
 
@@ -2125,7 +2155,76 @@
       reader.readAsDataURL(file);
     }
 
-    // Computer Vision Loop for Fiducial Marker Detection
+    // --- REALTIME SCANNER COMPUTER VISION & DEBOUNCE ENGINE ---
+    let barcodeDetector = null;
+    let isDetectingBarcode = false;
+    let lastDetectTime = 0;
+    const scannedCooldowns = {}; // studentId -> timestamp
+    const activeDetections = []; // visual bounding boxes that fade out
+
+    // Initialize native BarcodeDetector if supported by browser
+    if ('BarcodeDetector' in window) {
+      try {
+        barcodeDetector = new BarcodeDetector({ formats: ['qr_code'] });
+      } catch (e) {
+        console.warn("BarcodeDetector unsupported", e);
+      }
+    }
+
+    function handleScannedCode(rawCode, cornerPoints) {
+      if (!rawCode) return;
+      const clean = rawCode.trim();
+
+      // Expected format: QC:<studentId>:<answer> (e.g. QC:1:B)
+      let studentId = null;
+      let answer = null;
+
+      if (clean.startsWith('QC:')) {
+        const parts = clean.split(':');
+        if (parts.length >= 3) {
+          studentId = parseInt(parts[1]);
+          answer = parts[2].toUpperCase();
+        }
+      }
+
+      if (!studentId || !['A', 'B', 'C', 'D'].includes(answer)) {
+        return;
+      }
+
+      // Check student belongs to active class
+      const st = APP_STATE.students.find(s => s.id === studentId);
+      if (!st) return;
+
+      const now = Date.now();
+      const lastScanned = scannedCooldowns[studentId] || 0;
+
+      // Anti-spam debounce: If this exact answer was recorded in the last 4 seconds, ignore!
+      if (st.currentAnswer === answer && (now - lastScanned < 4000)) {
+        return;
+      }
+
+      // Record scan time
+      scannedCooldowns[studentId] = now;
+
+      // Add visual AR box
+      if (cornerPoints && cornerPoints.length >= 4) {
+        activeDetections.push({
+          points: cornerPoints,
+          text: `#${studentId} ${st.name}: ${answer}`,
+          expire: now + 1500
+        });
+      }
+
+      // Haptic vibrate on phone (50ms)
+      if (navigator.vibrate) {
+        try { navigator.vibrate(50); } catch (e) {}
+      }
+
+      // Submit answer and broadcast to laptop!
+      submitStudentAnswer(studentId, answer, true);
+    }
+
+    // Computer Vision Loop for Fiducial Marker / QR Detection
     function processCameraFrame() {
       if (!APP_STATE.cameraActive) return;
 
@@ -2134,49 +2233,75 @@
         scannerCanvas.height = scannerVideo.videoHeight;
         scannerCtx.drawImage(scannerVideo, 0, 0, scannerCanvas.width, scannerCanvas.height);
 
-        // Simulation/Realtime AR Overlay: Draw scanning grid
         const w = scannerCanvas.width;
         const h = scannerCanvas.height;
+        const now = Date.now();
 
-        // Draw HUD target box
-        scannerCtx.strokeStyle = 'rgba(99, 102, 241, 0.4)';
-        scannerCtx.lineWidth = 2;
-        scannerCtx.strokeRect(w * 0.1, h * 0.1, w * 0.8, h * 0.8);
-
-        // Simulated intelligent detection: When camera is on, randomly highlight student cards in view
-        if (Math.random() < 0.05 && APP_STATE.students.some(s => !s.currentAnswer)) {
-          const unsubmitted = APP_STATE.students.filter(s => !s.currentAnswer);
-          if (unsubmitted.length > 0) {
-            const luckyStudent = unsubmitted[Math.floor(Math.random() * unsubmitted.length)];
-            const choices = ['A', 'B', 'C', 'D'];
-            const randomAnswer = choices[Math.floor(Math.random() * choices.length)];
-            submitStudentAnswer(luckyStudent.id, randomAnswer);
-          }
+        // If scanner is paused
+        if (APP_STATE.scannerPaused) {
+          scannerCtx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+          scannerCtx.fillRect(0, 0, w, h);
+          scannerCtx.fillStyle = '#FBBF24';
+          scannerCtx.font = 'bold 18px sans-serif';
+          scannerCtx.textAlign = 'center';
+          scannerCtx.fillText('⏸️ ĐÃ TẠM DỪNG QUÉT', w / 2, h / 2 - 10);
+          scannerCtx.fillStyle = '#FFFFFF';
+          scannerCtx.font = '13px sans-serif';
+          scannerCtx.fillText("Bấm 'Tiếp Tục Quét' ở trên để mở lại camera", w / 2, h / 2 + 18);
+          scannerCtx.textAlign = 'start';
+          APP_STATE.animFrameId = requestAnimationFrame(processCameraFrame);
+          return;
         }
 
-        // Draw AR bounding boxes for already scanned students
-        APP_STATE.students.forEach((st, idx) => {
-          if (st.currentAnswer) {
-            // Simulated positioned bounding box in frame
-            const col = idx % 4;
-            const row = Math.floor(idx / 4);
-            const bx = w * 0.15 + col * (w * 0.18);
-            const by = h * 0.2 + row * (h * 0.22);
-            const bw = 80;
-            const bh = 80;
+        // Draw HUD target viewfinder
+        scannerCtx.strokeStyle = 'rgba(99, 102, 241, 0.5)';
+        scannerCtx.lineWidth = 3;
+        scannerCtx.strokeRect(w * 0.1, h * 0.1, w * 0.8, h * 0.8);
 
-            scannerCtx.strokeStyle = '#10B981';
-            scannerCtx.lineWidth = 3;
-            scannerCtx.strokeRect(bx, by, bw, bh);
+        // Native QR Code Detection from camera frame (throttled every 120ms to save CPU)
+        if (barcodeDetector && !isDetectingBarcode && (now - lastDetectTime > 120)) {
+          lastDetectTime = now;
+          isDetectingBarcode = true;
+          barcodeDetector.detect(scannerVideo).then(barcodes => {
+            isDetectingBarcode = false;
+            if (barcodes && barcodes.length > 0) {
+              for (const barcode of barcodes) {
+                handleScannedCode(barcode.rawValue, barcode.cornerPoints);
+              }
+            }
+          }).catch(() => {
+            isDetectingBarcode = false;
+          });
+        }
 
-            scannerCtx.fillStyle = '#10B981';
-            scannerCtx.fillRect(bx, by - 22, bw, 22);
-
-            scannerCtx.fillStyle = '#FFFFFF';
-            scannerCtx.font = 'bold 11px sans-serif';
-            scannerCtx.fillText(`#${st.id} ${st.currentAnswer}`, bx + 6, by - 6);
+        // Draw active AR bounding boxes on detected cards
+        for (let i = activeDetections.length - 1; i >= 0; i--) {
+          const det = activeDetections[i];
+          if (now > det.expire) {
+            activeDetections.splice(i, 1);
+            continue;
           }
-        });
+          if (det.points && det.points.length >= 4) {
+            scannerCtx.beginPath();
+            scannerCtx.moveTo(det.points[0].x, det.points[0].y);
+            scannerCtx.lineTo(det.points[1].x, det.points[1].y);
+            scannerCtx.lineTo(det.points[2].x, det.points[2].y);
+            scannerCtx.lineTo(det.points[3].x, det.points[3].y);
+            scannerCtx.closePath();
+            scannerCtx.strokeStyle = '#10B981';
+            scannerCtx.lineWidth = 4;
+            scannerCtx.stroke();
+
+            // Label background
+            const lx = det.points[0].x;
+            const ly = Math.max(25, det.points[0].y - 10);
+            scannerCtx.fillStyle = '#10B981';
+            scannerCtx.fillRect(lx, ly - 22, 140, 24);
+            scannerCtx.fillStyle = '#FFFFFF';
+            scannerCtx.font = 'bold 12px sans-serif';
+            scannerCtx.fillText(det.text, lx + 6, ly - 6);
+          }
+        }
       }
 
       APP_STATE.animFrameId = requestAnimationFrame(processCameraFrame);
@@ -2271,6 +2396,16 @@
       document.getElementById('btn-stop-camera').addEventListener('click', stopCamera);
       document.getElementById('btn-flip-camera').addEventListener('click', toggleFlipCamera);
       document.getElementById('btn-open-camera-guide').addEventListener('click', openCameraGuideModal);
+
+      // Pause / Resume Scanning toggle
+      const btnPauseCam = document.getElementById('btn-pause-camera');
+      if (btnPauseCam) {
+        btnPauseCam.addEventListener('click', () => {
+          APP_STATE.scannerPaused = !APP_STATE.scannerPaused;
+          btnPauseCam.textContent = APP_STATE.scannerPaused ? "▶️ Tiếp Tục Quét" : "⏸️ Tạm Dừng Quét";
+          showToast(APP_STATE.scannerPaused ? "Đã tạm dừng quét thẻ" : "Đã tiếp tục quét thẻ", 'info');
+        });
+      }
 
       // Snapshot & Upload Controls
       const inputSnapshot = document.getElementById('input-camera-snapshot');
@@ -2559,10 +2694,9 @@
           <!-- Middle row with D, Pattern, B -->
           <div class="flex items-center justify-between w-full px-1">
             <span class="text-emerald-300 font-black text-xs -rotate-90">D</span>
-            <div id="screen-card-pattern-container" class="w-32 h-32 bg-black p-2 border-2 border-white rounded-lg shadow-inner">
-              <div id="screen-card-pattern-grid" class="w-full h-full bg-white grid grid-cols-5 gap-0.5 p-1">
-                <!-- 5x5 pattern cells -->
-              </div>
+            <div id="screen-card-pattern-container" class="w-36 h-36 bg-white p-1.5 border-4 border-black rounded-xl shadow-inner flex items-center justify-center relative overflow-hidden">
+              <canvas id="screen-card-qr-canvas" class="w-full h-full object-contain"></canvas>
+              <img id="screen-card-qr-img" alt="Mã thẻ học sinh" class="w-full h-full object-contain absolute inset-0 hidden p-1">
             </div>
             <span class="text-blue-300 font-black text-xs rotate-90">B</span>
           </div>
