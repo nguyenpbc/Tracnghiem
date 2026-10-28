@@ -156,6 +156,10 @@
             <span id="host-sync-status-dot" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
             <span>📱 Kết Nối Điện Thoại: <strong id="host-room-pin-display" class="font-mono text-indigo-700 tracking-wider">------</strong></span>
           </button>
+          <!-- Virtual Student Card on Screen for Phone Camera Testing -->
+          <button id="btn-open-screen-card-modal" title="Hiển thị thẻ của học sinh trên màn hình máy tính để lấy điện thoại quét thử ngay" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-all flex items-center gap-1.5 shadow-2xs">
+            🎴 Thẻ Học Sinh Mẫu (Quét Thử)
+          </button>
           <button id="btn-reset-answers" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 transition-colors flex items-center gap-1.5">
             🔄 Quét Lại
           </button>
@@ -319,7 +323,10 @@
           <div class="flex items-center gap-2.5">
             <span id="phone-sync-status-dot" class="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
             <div>
-              <span id="phone-sync-status-text" class="font-bold text-slate-800">Chưa kết nối với Laptop</span>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span id="phone-sync-status-text" class="font-bold text-slate-800">Chưa kết nối với Laptop</span>
+                <span id="phone-class-badge" class="px-2 py-0.5 rounded-md bg-white border border-indigo-200 text-indigo-700 font-bold text-[11px]">Lớp: Lớp 3A1 (12 em)</span>
+              </div>
               <p id="phone-sync-subtext" class="text-[11px] text-slate-500">Nhập mã PIN hiển thị trên màn hình Laptop để đồng bộ kết quả trực tiếp</p>
             </div>
           </div>
@@ -410,11 +417,37 @@
               </div>
             </div>
 
-            <!-- Camera Helper Tips -->
+            <!-- Camera Helper Tips & Touch Input Fallback -->
             <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
               <span class="text-base shrink-0">💡</span>
               <div>
-                <strong>Mẹo giáo viên quét cả lớp:</strong> Cầm điện thoại đứng ở bục giảng, hướng camera bao quát cả phòng và lia chậm từ trái sang phải một vòng. Hệ thống tự động ghi nhận tất cả học sinh mà không cần dừng lại từng em!
+                <strong>Mẹo quét cả lớp:</strong> Cầm điện thoại đứng ở bục giảng, lia camera một vòng quanh lớp hoặc hướng vào thẻ học sinh trên máy tính để thử nghiệm!
+              </div>
+            </div>
+
+            <!-- MANUAL TOUCH INPUT FOR TEACHER ON PHONE -->
+            <div class="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-200 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                  <span>🖐️ Chọn Nhanh Đáp Án Bằng Tay (Không Cần Camera):</span>
+                </span>
+                <button id="btn-phone-req-sync" class="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline">
+                  🔄 Đồng bộ lại danh sách lớp
+                </button>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <select id="select-phone-quick-student" class="w-full px-3 py-2 rounded-xl border border-indigo-200 text-xs font-bold bg-white focus:ring-2 focus:ring-indigo-500">
+                    <!-- Populated dynamically -->
+                  </select>
+                </div>
+                <div class="grid grid-cols-4 gap-1.5">
+                  <button class="btn-phone-quick-ans py-2 rounded-xl text-xs font-black text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 transition-colors" data-ans="A">A</button>
+                  <button class="btn-phone-quick-ans py-2 rounded-xl text-xs font-black text-blue-800 bg-blue-100 hover:bg-blue-200 border border-blue-300 transition-colors" data-ans="B">B</button>
+                  <button class="btn-phone-quick-ans py-2 rounded-xl text-xs font-black text-rose-800 bg-rose-100 hover:bg-rose-200 border border-rose-300 transition-colors" data-ans="C">C</button>
+                  <button class="btn-phone-quick-ans py-2 rounded-xl text-xs font-black text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 transition-colors" data-ans="D">D</button>
+                </div>
               </div>
             </div>
           </div>
@@ -1060,12 +1093,28 @@
       renderSimDesks();
       renderPrintCards();
       updateHostStudentGrid();
+      updateScreenCardDropdown();
+      updatePhoneQuickDropdown();
+
+      // Update phone class badge
+      const phoneClassBadge = document.getElementById('phone-class-badge');
+      if (phoneClassBadge) {
+        phoneClassBadge.textContent = `Lớp: ${APP_STATE.className} (${APP_STATE.students.length} em)`;
+      }
+
+      // Update quiz title badge on host
+      const titleBadge = document.getElementById('quiz-title-badge');
+      if (titleBadge) {
+        const q = APP_STATE.quizzes[APP_STATE.currentQuestionIndex];
+        titleBadge.textContent = `${APP_STATE.className} - Môn: ${q ? q.subject : ''}`;
+      }
 
       // Broadcast new student list if connected
       broadcastSyncMessage({
-        type: 'CLASS_UPDATED',
+        type: 'SYNC_STATE',
         className: APP_STATE.className,
-        studentsCount: APP_STATE.students.length
+        students: APP_STATE.students,
+        questionIndex: APP_STATE.currentQuestionIndex
       });
     }
 
@@ -1119,18 +1168,46 @@
       renderPairingQrCode();
     }
 
+    function getPairingUrl() {
+      let base = window.location.href.split('?')[0];
+      if (base.startsWith('file://')) {
+        base = 'https://nguyenpbc.github.io/Tracnghiem/';
+      }
+      return `${base}?room=${APP_STATE.roomPin}&role=scanner`;
+    }
+
     function renderPairingQrCode() {
       const canvas = document.getElementById('qr-pairing-canvas');
-      if (!canvas || typeof QRCode === 'undefined') return;
+      const imgFallback = document.getElementById('qr-pairing-fallback-img');
+      const linkPreview = document.getElementById('text-sync-link-preview');
+      const pairingUrl = getPairingUrl();
 
-      const pairingUrl = `${window.location.origin}${window.location.pathname}?room=${APP_STATE.roomPin}&role=scanner`;
-      QRCode.toCanvas(canvas, pairingUrl, {
-        width: 190,
-        margin: 1,
-        color: { dark: '#1e1b4b', light: '#ffffff' }
-      }, (err) => {
-        if (err) console.warn("QR code render issue", err);
-      });
+      if (linkPreview) linkPreview.textContent = pairingUrl;
+
+      // Always prepare image fallback
+      if (imgFallback) {
+        imgFallback.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(pairingUrl)}`;
+      }
+
+      // Try canvas QRCode first
+      if (canvas && typeof QRCode !== 'undefined' && QRCode.toCanvas) {
+        canvas.classList.remove('hidden');
+        if (imgFallback) imgFallback.classList.add('hidden');
+        QRCode.toCanvas(canvas, pairingUrl, {
+          width: 190,
+          margin: 1,
+          color: { dark: '#1e1b4b', light: '#ffffff' }
+        }, (err) => {
+          if (err) {
+            console.warn("QR canvas failed, using fallback img", err);
+            canvas.classList.add('hidden');
+            if (imgFallback) imgFallback.classList.remove('hidden');
+          }
+        });
+      } else if (imgFallback) {
+        if (canvas) canvas.classList.add('hidden');
+        imgFallback.classList.remove('hidden');
+      }
     }
 
     function connectMqttBroker() {
@@ -1210,18 +1287,32 @@
           APP_STATE.isPhoneConnected = true;
           updateSyncStatus(true);
           showToast("📱 Điện thoại giáo viên đã kết nối với Laptop!", 'success');
-          // Host replies with current status
+          // Host sends FULL state including newly configured student list!
           if (APP_STATE.role !== 'scanner') {
             broadcastSyncMessage({
               type: 'SYNC_STATE',
               questionIndex: APP_STATE.currentQuestionIndex,
-              className: APP_STATE.className
+              className: APP_STATE.className,
+              students: APP_STATE.students
             });
           }
           break;
 
+        case 'REQUEST_CLASS_SYNC':
+          // Remote device requests current class data
+          if (APP_STATE.role !== 'scanner') {
+            broadcastSyncMessage({
+              type: 'SYNC_STATE',
+              questionIndex: APP_STATE.currentQuestionIndex,
+              className: APP_STATE.className,
+              students: APP_STATE.students
+            });
+            showToast("Đã gửi danh sách lớp học sang điện thoại!", 'info');
+          }
+          break;
+
         case 'STUDENT_ANSWER':
-          // Answer sent from phone camera
+          // Answer sent from phone camera or touch
           submitStudentAnswer(msg.studentId, msg.answer, false);
           showToast(`📱 Quét từ điện thoại: Thẻ #${msg.studentId} chọn ${msg.answer}`, 'info');
           break;
@@ -1231,8 +1322,19 @@
             APP_STATE.currentQuestionIndex = msg.questionIndex;
             renderHostQuestion();
           }
+          let rosterChanged = false;
           if (msg.className) {
             APP_STATE.className = msg.className;
+            rosterChanged = true;
+          }
+          if (Array.isArray(msg.students) && msg.students.length > 0) {
+            APP_STATE.students = JSON.parse(JSON.stringify(msg.students));
+            rosterChanged = true;
+          }
+          if (rosterChanged) {
+            saveClassToStorage();
+            refreshAllClassViews();
+            showToast(`Đã đồng bộ ${APP_STATE.students.length} học sinh của ${APP_STATE.className}!`, 'success');
           }
           updateSyncStatus(true);
           break;
@@ -1286,6 +1388,71 @@
         if (phoneSub) phoneSub.textContent = connected ? "Quét đáp án bằng điện thoại sẽ cập nhật ngay lập tức lên màn hình Laptop!" : "Nhập mã PIN hiển thị trên màn hình Laptop để đồng bộ kết quả trực tiếp";
         if (btnDisconnect) btnDisconnect.classList.toggle('hidden', !connected);
       }
+    }
+
+
+    // --- 4D. ON-SCREEN STUDENT CARD TESTER & PHONE QUICK INPUT ---
+    let screenCardSelectedStudentId = 1;
+    let screenCardSelectedAns = 'A';
+
+    function updateScreenCardDropdown() {
+      const sel = document.getElementById('select-screen-card-student');
+      if (!sel) return;
+      sel.innerHTML = '';
+      APP_STATE.students.forEach(st => {
+        const opt = document.createElement('option');
+        opt.value = st.id;
+        opt.textContent = `Thẻ #${st.id}: ${st.name}`;
+        sel.appendChild(opt);
+      });
+      if (APP_STATE.students.length > 0) {
+        if (!APP_STATE.students.some(s => s.id === screenCardSelectedStudentId)) {
+          screenCardSelectedStudentId = APP_STATE.students[0].id;
+        }
+        sel.value = screenCardSelectedStudentId;
+      }
+      renderScreenCardPattern();
+    }
+
+    function renderScreenCardPattern() {
+      const grid = document.getElementById('screen-card-pattern-grid');
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      const pattern = getStudentPattern(screenCardSelectedStudentId);
+      for (let r = 0; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
+          const isBlack = pattern[r][c] === 1;
+          const cell = document.createElement('div');
+          cell.className = isBlack ? 'bg-black w-full h-full' : 'bg-white w-full h-full';
+          grid.appendChild(cell);
+        }
+      }
+    }
+
+    function rotateScreenCard(ansLetter) {
+      screenCardSelectedAns = ansLetter;
+      const angleMap = { 'A': 0, 'B': 90, 'C': 180, 'D': 270 };
+      const body = document.getElementById('screen-card-body');
+      if (body) {
+        body.style.transform = `rotate(${angleMap[ansLetter]}deg)`;
+      }
+      const label = document.getElementById('screen-card-current-ans');
+      if (label) {
+        label.textContent = ansLetter;
+      }
+    }
+
+    function updatePhoneQuickDropdown() {
+      const sel = document.getElementById('select-phone-quick-student');
+      if (!sel) return;
+      sel.innerHTML = '';
+      APP_STATE.students.forEach(st => {
+        const opt = document.createElement('option');
+        opt.value = st.id;
+        opt.textContent = `#${st.id} - ${st.name}`;
+        sel.appendChild(opt);
+      });
     }
 
     // --- 5. RENDER VIEWS & CONTROLLERS ---
@@ -2225,9 +2392,67 @@
       // Realtime Sync Modal Bindings
       const modalSync = document.getElementById('modal-sync-phone');
       document.getElementById('btn-open-sync-modal').addEventListener('click', () => {
-        renderPairingQrCode();
         modalSync.classList.remove('hidden');
+        renderPairingQrCode();
       });
+
+      // On-Screen Card Modal Bindings (Test scanning from computer screen)
+      const modalScreenCard = document.getElementById('modal-screen-card');
+      const btnOpenScreenCard = document.getElementById('btn-open-screen-card-modal');
+      const btnCloseScreenCard = document.getElementById('btn-close-screen-card-modal');
+      const selectScreenStudent = document.getElementById('select-screen-card-student');
+
+      if (btnOpenScreenCard) {
+        btnOpenScreenCard.addEventListener('click', () => {
+          updateScreenCardDropdown();
+          modalScreenCard.classList.remove('hidden');
+        });
+      }
+
+      if (btnCloseScreenCard) {
+        btnCloseScreenCard.addEventListener('click', () => {
+          modalScreenCard.classList.add('hidden');
+        });
+      }
+
+      if (selectScreenStudent) {
+        selectScreenStudent.addEventListener('change', (e) => {
+          screenCardSelectedStudentId = parseInt(e.target.value);
+          renderScreenCardPattern();
+        });
+      }
+
+      document.querySelectorAll('.btn-rotate-screen-card').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ans = btn.getAttribute('data-ans');
+          rotateScreenCard(ans);
+        });
+      });
+
+      document.getElementById('btn-quick-send-screen-card').addEventListener('click', () => {
+        submitStudentAnswer(screenCardSelectedStudentId, screenCardSelectedAns, true);
+        showToast(`Đã ghi nhận Thẻ #${screenCardSelectedStudentId} chọn ${screenCardSelectedAns}!`, 'success');
+      });
+
+      // Phone Touch Quick Answer Buttons
+      document.querySelectorAll('.btn-phone-quick-ans').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ans = btn.getAttribute('data-ans');
+          const selStudent = document.getElementById('select-phone-quick-student');
+          if (!selStudent || !selStudent.value) return;
+          const sId = parseInt(selStudent.value);
+          submitStudentAnswer(sId, ans, true);
+        });
+      });
+
+      // Phone Request Class Sync button
+      const btnPhoneReqSync = document.getElementById('btn-phone-req-sync');
+      if (btnPhoneReqSync) {
+        btnPhoneReqSync.addEventListener('click', () => {
+          broadcastSyncMessage({ type: 'REQUEST_CLASS_SYNC' });
+          showToast("Đang gửi yêu cầu lấy danh sách lớp từ Laptop...", 'info');
+        });
+      }
 
       document.getElementById('btn-close-sync-modal').addEventListener('click', () => {
         modalSync.classList.add('hidden');
@@ -2291,6 +2516,100 @@
   <!-- MODAL: HƯỚNG DẪN MỞ CAMERA TRÊN GOOGLE SITES & THIẾT BỊ -->
   
   <!-- MODAL: KẾT NỐI ĐIỆN THOẠI QUÉT THẺ VỚI LAPTOP THEO THỜI GIAN THỰC -->
+  
+  <!-- MODAL: HIỂN THỊ THẺ HỌC SINH MẪU TRÊN MÀN HÌNH ĐỂ THỬ QUÉT BẰNG ĐIỆN THOẠI -->
+  <div id="modal-screen-card" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-slate-200 space-y-4 animate-fadeIn">
+      
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center text-xl">
+            🎴
+          </div>
+          <div>
+            <h3 class="text-base font-black text-slate-800">Thẻ Quét Học Sinh Trên Màn Hình</h3>
+            <p class="text-xs text-slate-500">Dùng camera điện thoại hướng vào thẻ này để quét thử</p>
+          </div>
+        </div>
+        <button id="btn-close-screen-card-modal" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold flex items-center justify-center text-sm transition-colors">
+          ✕
+        </button>
+      </div>
+
+      <!-- Select student dropdown -->
+      <div>
+        <label class="block text-xs font-bold text-slate-600 mb-1">Chọn học sinh muốn giơ thẻ:</label>
+        <select id="select-screen-card-student" class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white focus:ring-2 focus:ring-amber-500">
+          <!-- Populated dynamically with all students from active class -->
+        </select>
+      </div>
+
+      <!-- Big On-Screen Card Display -->
+      <div class="flex flex-col items-center justify-center p-4 bg-slate-900 rounded-2xl relative shadow-lg">
+        <!-- The Card Element that rotates -->
+        <div id="screen-card-body" class="w-56 h-56 bg-slate-900 border-4 border-white rounded-2xl relative transition-transform duration-300 flex flex-col items-center justify-between p-2 shadow-2xl">
+          
+          <!-- Top edge A -->
+          <div class="w-full flex items-center justify-between text-amber-300 font-black text-xs px-2">
+            <span>A ⬆</span>
+            <span class="text-sm">A</span>
+            <span>A ⬆</span>
+          </div>
+
+          <!-- Middle row with D, Pattern, B -->
+          <div class="flex items-center justify-between w-full px-1">
+            <span class="text-emerald-300 font-black text-xs -rotate-90">D</span>
+            <div id="screen-card-pattern-container" class="w-32 h-32 bg-black p-2 border-2 border-white rounded-lg shadow-inner">
+              <div id="screen-card-pattern-grid" class="w-full h-full bg-white grid grid-cols-5 gap-0.5 p-1">
+                <!-- 5x5 pattern cells -->
+              </div>
+            </div>
+            <span class="text-blue-300 font-black text-xs rotate-90">B</span>
+          </div>
+
+          <!-- Bottom edge C -->
+          <div class="w-full flex items-center justify-between text-rose-300 font-black text-xs px-2">
+            <span>⬇ C</span>
+            <span class="text-sm">C</span>
+            <span>⬇ C</span>
+          </div>
+
+        </div>
+
+        <!-- Indicator of currently pointing edge -->
+        <div class="mt-3 text-center">
+          <span class="text-xs font-bold text-slate-300">Cạnh hướng lên trên:</span>
+          <span id="screen-card-current-ans" class="text-sm font-black text-amber-400 ml-1 px-2.5 py-0.5 rounded-full bg-black/60 border border-white/20">A</span>
+        </div>
+      </div>
+
+      <!-- 4 Rotation Buttons -->
+      <div class="space-y-1.5">
+        <label class="block text-xs font-bold text-slate-600">Bấm để đổi đáp án học sinh chọn:</label>
+        <div class="grid grid-cols-4 gap-1.5">
+          <button class="btn-rotate-screen-card py-2 rounded-xl text-xs font-black text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 transition-colors" data-ans="A">
+            A (0°)
+          </button>
+          <button class="btn-rotate-screen-card py-2 rounded-xl text-xs font-black text-blue-800 bg-blue-100 hover:bg-blue-200 border border-blue-300 transition-colors" data-ans="B">
+            B (90°)
+          </button>
+          <button class="btn-rotate-screen-card py-2 rounded-xl text-xs font-black text-rose-800 bg-rose-100 hover:bg-rose-200 border border-rose-300 transition-colors" data-ans="C">
+            C (180°)
+          </button>
+          <button class="btn-rotate-screen-card py-2 rounded-xl text-xs font-black text-emerald-800 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 transition-colors" data-ans="D">
+            D (270°)
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick send without camera button -->
+      <button id="btn-quick-send-screen-card" class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200 transition-colors flex items-center justify-center gap-1.5">
+        ⚡ Gửi Ngay Đáp Án Này Lên Laptop
+      </button>
+
+    </div>
+  </div>
+
   <div id="modal-sync-phone" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-slate-200 space-y-5 animate-fadeIn">
       
@@ -2318,12 +2637,18 @@
         <p class="text-[11px] text-indigo-200">Nhập mã này trên điện thoại hoặc quét mã QR dưới đây</p>
       </div>
 
-      <!-- QR Code Container for instant phone pairing -->
+      <!-- QR Code Container for instant phone pairing (with dual canvas + fallback image) -->
       <div class="flex flex-col items-center justify-center p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
-        <canvas id="qr-pairing-canvas" class="w-48 h-48 rounded-xl shadow-xs bg-white p-2 border border-slate-200"></canvas>
-        <span class="text-[11px] font-bold text-slate-500 text-center">
+        <div class="relative w-52 h-52 rounded-2xl shadow-sm bg-white p-2 border-2 border-indigo-200 flex items-center justify-center overflow-hidden">
+          <canvas id="qr-pairing-canvas" class="w-full h-full object-contain"></canvas>
+          <img id="qr-pairing-fallback-img" alt="Mã QR kết nối điện thoại" class="w-full h-full object-contain absolute inset-0 hidden p-2">
+        </div>
+        <span class="text-[11px] font-bold text-slate-600 text-center">
           Dùng camera điện thoại quét mã này để tự động mở và kết nối ngay!
         </span>
+        <div class="text-[11px] text-indigo-700 bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-200 font-mono text-center w-full truncate" id="text-sync-link-preview">
+          Đang tạo link kết nối...
+        </div>
       </div>
 
       <!-- Connection Status Indicator -->
