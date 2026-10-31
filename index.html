@@ -18,6 +18,15 @@
       font-family: 'Comfortaa', cursive;
     }
     @media print {
+      *, *::before, *::after {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      @page {
+        size: A4 portrait;
+        margin: 8mm;
+      }
       body * {
         visibility: hidden;
       }
@@ -28,10 +37,19 @@
         position: absolute;
         left: 0;
         top: 0;
-        width: 100%;
-        background: white;
-        padding: 0;
-        margin: 0;
+        width: 100% !important;
+        background: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 6mm !important;
+      }
+      .print-card-item {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        border: 3.5px solid #000000 !important;
+        box-shadow: none !important;
       }
       .no-print {
         display: none !important;
@@ -535,10 +553,10 @@
           </div>
         </div>
 
-        <div class="p-3 bg-blue-50 rounded-xl border border-blue-200 text-blue-900 text-xs flex items-center gap-3">
-          <span class="text-xl">📌</span>
+        <div class="p-3 bg-emerald-50 rounded-xl border border-emerald-300 text-emerald-950 text-xs flex items-center gap-3">
+          <span class="text-xl">🖨️</span>
           <div>
-            <strong>Hướng dẫn sử dụng thẻ cho học sinh:</strong> In xong, giáo viên có thể ép plastic để dùng bền cả năm học. Hướng dẫn các con: <em>"Muốn chọn đáp án nào, con hãy xoay chữ cái đó lên phía trên cùng rồi giơ thẳng trước ngực nhé!"</em>
+            <strong>Đã kích hoạt chế độ In Vector SVG chống bay màu:</strong> Các ô đen mã quét được tạo bằng định dạng vector sắc nét, đảm bảo in ra đen đậm 100% trên mọi máy in (kể cả khi không bật tùy chọn 'Đồ họa nền' trên trình duyệt). Khổ in tối ưu 4 thẻ trên mỗi trang A4.
           </div>
         </div>
       </div>
@@ -1812,18 +1830,26 @@
       });
     }
 
-    // Generate mini marker cells HTML
-    function generateMiniMarkerHTML(id) {
-      const pattern = getStudentPattern(id);
-      let html = '';
+    // Vector SVG Generator for ArUco Marker (Guaranteed 100% black print without stripping)
+    function generateMarkerSVG(studentId, size = 180) {
+      const pattern = getStudentPattern(studentId);
+      const cellSize = size / 5;
+      let rects = `<rect width="${size}" height="${size}" fill="#ffffff" stroke="#000000" stroke-width="2"/>`;
       for (let r = 0; r < 5; r++) {
         for (let c = 0; c < 5; c++) {
-          const isBlack = pattern[r][c] === 1;
-          html += `<div class="${isBlack ? 'bg-black' : 'bg-white'} w-full h-full"></div>`;
+          if (pattern[r][c] === 1) {
+            rects += `<rect x="${c * cellSize}" y="${r * cellSize}" width="${cellSize}" height="${cellSize}" fill="#000000" stroke="#000000" stroke-width="0.5"/>`;
+          }
         }
       }
-      return html;
+      return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg" class="mx-auto block">${rects}</svg>`;
     }
+
+    // Generate mini marker SVG for simulation desks
+    function generateMiniMarkerHTML(id) {
+      return generateMarkerSVG(id, 56);
+    }
+
 
     // Rotate student card sequentially A -> B -> C -> D -> A
     function rotateStudentCard(id) {
@@ -1861,60 +1887,49 @@
       renderSimDesks();
     }
 
-    // --- 7. PRINTABLE CARDS GENERATOR ---
+    // --- 7. PRINTABLE CARDS GENERATOR (Vector SVG: Chống bay màu, in chuẩn 100%) ---
     function renderPrintCards() {
       const area = document.getElementById('print-area');
       area.innerHTML = '';
 
       APP_STATE.students.forEach(st => {
         const card = document.createElement('div');
-        card.className = "bg-white border-4 border-slate-900 rounded-3xl p-6 shadow-sm flex flex-col items-center justify-between text-center relative aspect-square max-w-sm mx-auto";
-        
-        // Build 5x5 ArUco Pattern Grid
-        const pattern = getStudentPattern(st.id);
-        let patternCells = '';
-        for (let r = 0; r < 5; r++) {
-          for (let c = 0; c < 5; c++) {
-            const isBlack = pattern[r][c] === 1;
-            patternCells += `<div class="${isBlack ? 'bg-black' : 'bg-white'}"></div>`;
-          }
-        }
+        // print-card-item class for exact print margins and page-break rules
+        card.className = "print-card-item bg-white border-4 border-black rounded-3xl p-5 shadow-sm flex flex-col items-center justify-between text-center relative aspect-square max-w-sm mx-auto";
 
         card.innerHTML = `
           <!-- Edge A (Top) -->
-          <div class="w-full flex items-center justify-between text-slate-400 font-bold text-xs uppercase border-b border-slate-200 pb-1">
-            <span>Cạnh A ⬆</span>
-            <span class="text-base font-black text-slate-500">A</span>
-            <span>Cạnh A ⬆</span>
+          <div class="w-full flex items-center justify-between text-slate-500 font-bold text-xs uppercase border-b border-slate-300 pb-1">
+            <span class="text-[11px] font-black">CẠNH A ⬆</span>
+            <span class="text-lg font-black text-slate-900">A</span>
+            <span class="text-[11px] font-black">CẠNH A ⬆</span>
           </div>
 
           <!-- Center: Marker & Edge Labels -->
-          <div class="flex items-center justify-between w-full my-auto px-2">
+          <div class="flex items-center justify-between w-full my-auto px-1">
             <!-- Edge D (Left) -->
-            <div class="flex flex-col items-center text-slate-400 font-bold text-xs uppercase -rotate-90">
-              <span class="text-base font-black text-slate-500">D</span>
-              <span class="text-[9px]">Cạnh D</span>
+            <div class="flex flex-col items-center text-slate-500 font-bold text-xs uppercase -rotate-90">
+              <span class="text-lg font-black text-slate-900">D</span>
+              <span class="text-[10px] font-black">CẠNH D</span>
             </div>
 
-            <!-- Big Fiducial Marker -->
-            <div class="w-48 h-48 bg-black p-3 border-4 border-black rounded-lg shadow-inner">
-              <div class="w-full h-full bg-white grid grid-cols-5 gap-1 p-1">
-                ${patternCells}
-              </div>
+            <!-- Big Fiducial Marker (Vector SVG không bao giờ bị mất màu khi in) -->
+            <div class="w-48 h-48 border-4 border-black rounded-2xl flex items-center justify-center p-2 bg-white">
+              ${generateMarkerSVG(st.id, 172)}
             </div>
 
             <!-- Edge B (Right) -->
-            <div class="flex flex-col items-center text-slate-400 font-bold text-xs uppercase rotate-90">
-              <span class="text-base font-black text-slate-500">B</span>
-              <span class="text-[9px]">Cạnh B</span>
+            <div class="flex flex-col items-center text-slate-500 font-bold text-xs uppercase rotate-90">
+              <span class="text-lg font-black text-slate-900">B</span>
+              <span class="text-[10px] font-black">CẠNH B</span>
             </div>
           </div>
 
           <!-- Edge C (Bottom) -->
-          <div class="w-full flex items-center justify-between text-slate-400 font-bold text-xs uppercase border-t border-slate-200 pt-1">
-            <span>⬇ Cạnh C</span>
-            <span class="text-base font-black text-slate-500">C</span>
-            <span>⬇ Cạnh C</span>
+          <div class="w-full flex items-center justify-between text-slate-500 font-bold text-xs uppercase border-t border-slate-300 pt-1">
+            <span class="text-[11px] font-black">⬇ CẠNH C</span>
+            <span class="text-lg font-black text-slate-900">C</span>
+            <span class="text-[11px] font-black">⬇ CẠNH C</span>
           </div>
 
           <!-- Student Name Footer -->
