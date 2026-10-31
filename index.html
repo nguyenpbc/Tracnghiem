@@ -6,6 +6,7 @@
   <title>Trường TH Tiến Lợi - Trắc Nghiệm Thẻ Quét 4 Chiều (Plickers Style)</title>
     <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.4/dist/mqtt.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -373,6 +374,10 @@
 
           <!-- Camera Controls & Snapshot Options -->
           <div class="flex items-center gap-2 flex-wrap">
+            <!-- Camera Device Selector (for Laptop webcam & multiple cameras) -->
+            <select id="select-camera-device" class="px-3 py-2 rounded-xl text-xs font-bold border border-indigo-200 bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500 max-w-[200px] shadow-2xs">
+              <option value="">📷 Chọn Camera Laptop/ĐT...</option>
+            </select>
             <!-- Hidden file inputs for snapshot & upload -->
             <input type="file" id="input-camera-snapshot" accept="image/*" capture="environment" class="hidden">
             <input type="file" id="input-upload-photo" accept="image/*" class="hidden">
@@ -1887,7 +1892,7 @@
       renderSimDesks();
     }
 
-    // --- 7. PRINTABLE CARDS GENERATOR (Vector SVG: Chống bay màu, in chuẩn 100%) ---
+    // --- 7. PRINTABLE CARDS GENERATOR (Dual High-Contrast QR + SVG Vector for 4-way Live Scanning) ---
     function renderPrintCards() {
       const area = document.getElementById('print-area');
       area.innerHTML = '';
@@ -1899,46 +1904,74 @@
 
         card.innerHTML = `
           <!-- Edge A (Top) -->
-          <div class="w-full flex items-center justify-between text-slate-500 font-bold text-xs uppercase border-b border-slate-300 pb-1">
-            <span class="text-[11px] font-black">CẠNH A ⬆</span>
-            <span class="text-lg font-black text-slate-900">A</span>
-            <span class="text-[11px] font-black">CẠNH A ⬆</span>
+          <div class="w-full flex items-center justify-between text-slate-700 font-bold text-xs uppercase border-b-2 border-black pb-1">
+            <span class="text-[11px] font-black tracking-wider">CẠNH A ⬆</span>
+            <span class="text-xl font-black text-black">A</span>
+            <span class="text-[11px] font-black tracking-wider">CẠNH A ⬆</span>
           </div>
 
           <!-- Center: Marker & Edge Labels -->
           <div class="flex items-center justify-between w-full my-auto px-1">
             <!-- Edge D (Left) -->
-            <div class="flex flex-col items-center text-slate-500 font-bold text-xs uppercase -rotate-90">
-              <span class="text-lg font-black text-slate-900">D</span>
-              <span class="text-[10px] font-black">CẠNH D</span>
+            <div class="flex flex-col items-center text-slate-700 font-bold text-xs uppercase -rotate-90">
+              <span class="text-xl font-black text-black">D</span>
+              <span class="text-[10px] font-black tracking-wider">CẠNH D</span>
             </div>
 
-            <!-- Big Fiducial Marker (Vector SVG không bao giờ bị mất màu khi in) -->
-            <div class="w-48 h-48 border-4 border-black rounded-2xl flex items-center justify-center p-2 bg-white">
-              ${generateMarkerSVG(st.id, 172)}
+            <!-- Crisp QR Code (Đọc tự động 4 chiều A-B-C-D bằng camera laptop và điện thoại) -->
+            <div class="w-48 h-48 border-4 border-black rounded-2xl flex items-center justify-center p-2 bg-white relative overflow-hidden">
+              <canvas id="print-qr-canvas-${st.id}" class="w-44 h-44 mx-auto block"></canvas>
+              <img id="print-qr-img-${st.id}" class="w-44 h-44 mx-auto block hidden" alt="Mã thẻ">
             </div>
 
             <!-- Edge B (Right) -->
-            <div class="flex flex-col items-center text-slate-500 font-bold text-xs uppercase rotate-90">
-              <span class="text-lg font-black text-slate-900">B</span>
-              <span class="text-[10px] font-black">CẠNH B</span>
+            <div class="flex flex-col items-center text-slate-700 font-bold text-xs uppercase rotate-90">
+              <span class="text-xl font-black text-black">B</span>
+              <span class="text-[10px] font-black tracking-wider">CẠNH B</span>
             </div>
           </div>
 
           <!-- Edge C (Bottom) -->
-          <div class="w-full flex items-center justify-between text-slate-500 font-bold text-xs uppercase border-t border-slate-300 pt-1">
-            <span class="text-[11px] font-black">⬇ CẠNH C</span>
-            <span class="text-lg font-black text-slate-900">C</span>
-            <span class="text-[11px] font-black">⬇ CẠNH C</span>
+          <div class="w-full flex items-center justify-between text-slate-700 font-bold text-xs uppercase border-t-2 border-black pt-1">
+            <span class="text-[11px] font-black tracking-wider">⬇ CẠNH C</span>
+            <span class="text-xl font-black text-black">C</span>
+            <span class="text-[11px] font-black tracking-wider">⬇ CẠNH C</span>
           </div>
 
           <!-- Student Name Footer -->
           <div class="mt-2 text-center">
-            <span class="text-xs font-black uppercase tracking-wider text-slate-900">THẺ SỐ ${st.id} : ${st.name}</span>
+            <span class="text-xs font-black uppercase tracking-wider text-black">THẺ SỐ ${st.id} : ${st.name}</span>
           </div>
         `;
         area.appendChild(card);
       });
+
+      // Render crisp QR codes on each student card canvas
+      setTimeout(() => {
+        APP_STATE.students.forEach(st => {
+          const canvas = document.getElementById(`print-qr-canvas-${st.id}`);
+          const img = document.getElementById(`print-qr-img-${st.id}`);
+          const qrText = `QC:${st.id}`;
+
+          if (canvas && typeof QRCode !== 'undefined' && QRCode.toCanvas) {
+            QRCode.toCanvas(canvas, qrText, {
+              width: 176,
+              margin: 1,
+              color: { dark: '#000000', light: '#ffffff' }
+            }, (err) => {
+              if (err && img) {
+                canvas.classList.add('hidden');
+                img.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrText)}`;
+                img.classList.remove('hidden');
+              }
+            });
+          } else if (img) {
+            if (canvas) canvas.classList.add('hidden');
+            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrText)}`;
+            img.classList.remove('hidden');
+          }
+        });
+      }, 50);
     }
 
     // --- 8. QUIZ BANK VIEW CONTROLLER ---
@@ -2015,42 +2048,107 @@
       }
     }
 
-    async function startCamera(retryWithUser = true) {
-      // 1. Check support
+    let selectedCameraDeviceId = '';
+
+    // Enumerate all available cameras (Laptop Integrated Webcam, External USB, Phone Front/Back)
+    async function enumerateCameras() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        const select = document.getElementById('select-camera-device');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">📷 Chọn Camera...</option>';
+        if (videoDevices.length === 0) {
+          select.innerHTML = '<option value="">📷 Không tìm thấy Camera</option>';
+          return;
+        }
+
+        videoDevices.forEach((dev, idx) => {
+          const opt = document.createElement('option');
+          opt.value = dev.deviceId;
+          let label = dev.label || `Camera ${idx + 1}`;
+          if (label.toLowerCase().includes('integrated') || label.toLowerCase().includes('built-in') || label.toLowerCase().includes('front') || label.toLowerCase().includes('facetime')) {
+            label += ' (Webcam Laptop)';
+          } else if (label.toLowerCase().includes('back') || label.toLowerCase().includes('rear') || label.toLowerCase().includes('environment')) {
+            label += ' (Camera sau)';
+          }
+          opt.textContent = label;
+          select.appendChild(opt);
+        });
+
+        if (selectedCameraDeviceId && videoDevices.some(d => d.deviceId === selectedCameraDeviceId)) {
+          select.value = selectedCameraDeviceId;
+        } else if (videoDevices.length > 0) {
+          selectedCameraDeviceId = videoDevices[0].deviceId;
+          select.value = selectedCameraDeviceId;
+        }
+      } catch (err) {
+        console.warn("Could not enumerate devices", err);
+      }
+    }
+
+    async function startCamera() {
+      // 1. Check browser support
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        showToast("Trình duyệt hoặc môi trường này chặn quyền truy cập Camera", 'danger');
+        showToast("Trình duyệt chặn hoặc không hỗ trợ mở Camera trực tiếp!", 'danger');
         openCameraGuideModal();
         return;
       }
 
-      try {
-        // Attempt with current facing mode
-        const constraints = {
-          video: {
-            facingMode: { ideal: currentCameraFacing },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        };
+      // Stop previous stream if running
+      if (APP_STATE.videoStream) {
+        APP_STATE.videoStream.getTracks().forEach(t => t.stop());
+        APP_STATE.videoStream = null;
+      }
 
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        handleCameraSuccess(stream);
-      } catch (err) {
-        console.warn("Camera attempt failed:", err);
+      const selectDevice = document.getElementById('select-camera-device');
+      const chosenDeviceId = selectDevice ? selectDevice.value : '';
 
-        // Fallback: If 'environment' failed (e.g. PC webcam without back camera), try fallback to any video
-        if (retryWithUser) {
-          try {
-            currentCameraFacing = (currentCameraFacing === 'environment') ? 'user' : 'environment';
-            const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
-            handleCameraSuccess(fallbackStream);
-            return;
-          } catch (err2) {
-            handleCameraFailure(err2);
-            return;
-          }
+      // Progressive fallback constraints: Ensures laptop webcam and phone cameras BOTH work!
+      const attempts = [];
+
+      // 1. If user selected a specific device from dropdown
+      if (chosenDeviceId) {
+        attempts.push({ video: { deviceId: { exact: chosenDeviceId }, width: { ideal: 1280 } } });
+        attempts.push({ video: { deviceId: { exact: chosenDeviceId } } });
+      }
+
+      // 2. Facing mode ideal (front on laptop, back on phone)
+      attempts.push({
+        video: {
+          facingMode: { ideal: currentCameraFacing },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
         }
-        handleCameraFailure(err);
+      });
+
+      // 3. Laptop Front/User Webcam constraint
+      attempts.push({ video: { facingMode: 'user' } });
+
+      // 4. Universal Fallback: { video: true } (Works on 100% of laptop webcams without OverconstrainedError!)
+      attempts.push({ video: true });
+
+      let stream = null;
+      let lastErr = null;
+
+      for (const constraint of attempts) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraint);
+          if (stream) break;
+        } catch (e) {
+          lastErr = e;
+          console.warn("Camera attempt with constraint failed:", constraint, e);
+        }
+      }
+
+      if (stream) {
+        handleCameraSuccess(stream);
+        // After getting permission, enumerate cameras so labels appear in dropdown
+        enumerateCameras();
+      } else {
+        handleCameraFailure(lastErr || new Error("Không thể khởi động camera"));
       }
     }
 
@@ -2254,7 +2352,79 @@
       submitStudentAnswer(studentId, answer, true);
     }
 
-    // Computer Vision Loop for Fiducial Marker / QR Detection
+    // Automatic 4-Way QR / Card Detection Handler
+    function handleScannedQrResult(rawText, location) {
+      if (!rawText) return;
+      const clean = rawText.trim();
+      let studentId = null;
+      let answer = 'A'; // default
+
+      // Format 1: QC:<studentId> (Printed student cards with 4-way angle detection)
+      if (clean.startsWith('QC:')) {
+        const parts = clean.split(':');
+        if (parts.length === 2) {
+          studentId = parseInt(parts[1]);
+          // DEDUCE 4-WAY ROTATION (A-B-C-D) FROM CORNER ANGLE!
+          if (location && location.topLeftCorner && location.topRightCorner) {
+            const dx = location.topRightCorner.x - location.topLeftCorner.x;
+            const dy = location.topRightCorner.y - location.topLeftCorner.y;
+            let deg = Math.atan2(dy, dx) * 180 / Math.PI;
+            if (deg < 0) deg += 360;
+
+            // 0 deg = Upright (A), 90 deg = B on top, 180 deg = C on top, 270 deg = D on top
+            if (deg >= 45 && deg < 135) answer = 'B';
+            else if (deg >= 135 && deg < 225) answer = 'C';
+            else if (deg >= 225 && deg < 315) answer = 'D';
+            else answer = 'A';
+          }
+        } else if (parts.length >= 3) {
+          // Format 2: QC:<studentId>:<answer> (from on-screen card tester)
+          studentId = parseInt(parts[1]);
+          answer = parts[2].toUpperCase();
+        }
+      }
+
+      if (!studentId || !['A', 'B', 'C', 'D'].includes(answer)) {
+        return;
+      }
+
+      const st = APP_STATE.students.find(s => s.id === studentId);
+      if (!st) return;
+
+      const now = Date.now();
+      const lastScanned = scannedCooldowns[studentId] || 0;
+
+      // Smart debounce: Don't repeat the exact same answer within 3.5 seconds
+      if (st.currentAnswer === answer && (now - lastScanned < 3500)) {
+        return;
+      }
+
+      scannedCooldowns[studentId] = now;
+
+      // Add visual AR box that tracks corners
+      if (location && location.topLeftCorner) {
+        activeDetections.push({
+          points: [
+            location.topLeftCorner,
+            location.topRightCorner,
+            location.bottomRightCorner,
+            location.bottomLeftCorner
+          ],
+          text: `#${studentId} ${st.name}: ${answer}`,
+          expire: now + 1200
+        });
+      }
+
+      // Haptic vibrate on phone (50ms)
+      if (navigator.vibrate) {
+        try { navigator.vibrate(50); } catch (e) {}
+      }
+
+      // Submit answer and broadcast to laptop!
+      submitStudentAnswer(studentId, answer, true);
+    }
+
+    // Computer Vision Loop for Real-time Automatic Scanning (at 20-30 FPS)
     function processCameraFrame() {
       if (!APP_STATE.cameraActive) return;
 
@@ -2286,11 +2456,26 @@
         // Draw HUD target viewfinder
         scannerCtx.strokeStyle = 'rgba(99, 102, 241, 0.5)';
         scannerCtx.lineWidth = 3;
-        scannerCtx.strokeRect(w * 0.1, h * 0.1, w * 0.8, h * 0.8);
+        scannerCtx.strokeRect(w * 0.08, h * 0.08, w * 0.84, h * 0.84);
 
-        // Native QR Code Detection from camera frame (throttled every 120ms to save CPU)
-        if (barcodeDetector && !isDetectingBarcode && (now - lastDetectTime > 120)) {
+        // 1. Real-time Automatic Scan using jsQR (Pure JS, Works on Laptop Webcam, iPhone & Android!)
+        if (typeof jsQR !== 'undefined' && (now - lastDetectTime > 80)) {
           lastDetectTime = now;
+          try {
+            const imageData = scannerCtx.getImageData(0, 0, w, h);
+            const qrCode = jsQR(imageData.data, imageData.width, imageData.height, {
+              inversionAttempts: 'dontInvert'
+            });
+            if (qrCode && qrCode.data) {
+              handleScannedQrResult(qrCode.data, qrCode.location);
+            }
+          } catch (e) {
+            console.warn("jsQR scan issue", e);
+          }
+        }
+
+        // 2. Fallback to native BarcodeDetector if available
+        if (barcodeDetector && !isDetectingBarcode && (now - lastDetectTime > 150)) {
           isDetectingBarcode = true;
           barcodeDetector.detect(scannerVideo).then(barcodes => {
             isDetectingBarcode = false;
@@ -2326,7 +2511,7 @@
             const lx = det.points[0].x;
             const ly = Math.max(25, det.points[0].y - 10);
             scannerCtx.fillStyle = '#10B981';
-            scannerCtx.fillRect(lx, ly - 22, 140, 24);
+            scannerCtx.fillRect(lx, ly - 22, 160, 24);
             scannerCtx.fillStyle = '#FFFFFF';
             scannerCtx.font = 'bold 12px sans-serif';
             scannerCtx.fillText(det.text, lx + 6, ly - 6);
@@ -2421,8 +2606,22 @@
         if (banner) banner.classList.remove('hidden');
       }
 
+      // Camera Device Selection Listener
+      const selectCameraDevice = document.getElementById('select-camera-device');
+      if (selectCameraDevice) {
+        selectCameraDevice.addEventListener('change', (e) => {
+          selectedCameraDeviceId = e.target.value;
+          if (APP_STATE.cameraActive) {
+            startCamera(); // restart with newly selected camera
+          }
+        });
+      }
+
+      // Initial camera device discovery
+      enumerateCameras();
+
       // Camera Scanner Controls
-      document.getElementById('btn-start-camera').addEventListener('click', () => startCamera(true));
+      document.getElementById('btn-start-camera').addEventListener('click', () => startCamera());
       document.getElementById('btn-stop-camera').addEventListener('click', stopCamera);
       document.getElementById('btn-flip-camera').addEventListener('click', toggleFlipCamera);
       document.getElementById('btn-open-camera-guide').addEventListener('click', openCameraGuideModal);
