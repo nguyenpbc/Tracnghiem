@@ -71,16 +71,17 @@
   <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm no-print">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div class="flex items-center justify-between h-16">
-        <!-- Logo -->
+        <!-- Logo & School Brand -->
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-md shadow-indigo-200">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/>
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-md shadow-indigo-200 shrink-0">
+            <!-- Academic School Graduation Cap Icon -->
+            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 3L1 9l11 6 9-4.91V17h2V9L12 3zM5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82z"/>
             </svg>
           </div>
           <div>
-            <h2 class="text-xl font-bold font-kids text-indigo-900 leading-tight">Trường TH Tiến Lợi</h2>
-            <p class="text-xs text-slate-500 font-medium">Trắc nghiệm tương tác quét thẻ 4 chiều</p>
+            <h1 class="text-xl font-bold font-kids text-indigo-900 leading-tight">Trường TH Tiến Lợi</h1>
+            <p class="text-xs text-slate-500 font-medium">Ứng dụng trắc nghiệm quét thẻ 4 chiều tương tác</p>
           </div>
         </div>
 
@@ -756,7 +757,7 @@
   <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500 no-print">
     <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
       <p>Ứng dụng trắc nghiệm lớp học tiểu học sử dụng mã nhận diện 4 chiều theo phong cách Plickers</p>
-      <p class="font-bold text-indigo-600">Dành cho giáo viên tiểu học Việt Nam</p>
+      <p class="font-bold text-indigo-600">Trường TH Tiến Lợi</p>
     </div>
   </footer>
 
@@ -773,6 +774,7 @@
       mqttClientId: null,
       broadcastChannel: null,
       scannerPaused: false,
+      hasShownRosterToast: false,
       currentQuestionIndex: 0,
       isAnswerRevealed: false,
       cameraActive: false,
@@ -1093,7 +1095,7 @@
       showToast("Đã khôi phục danh sách 12 học sinh mẫu!", 'success');
     }
 
-    function refreshAllClassViews() {
+    function refreshAllClassViews(broadcast = true) {
       renderClassRoster();
       renderHostQuestion();
       renderSimDesks();
@@ -1115,13 +1117,16 @@
         titleBadge.textContent = `${APP_STATE.className} - Môn: ${q ? q.subject : ''}`;
       }
 
-      // Broadcast new student list if connected
-      broadcastSyncMessage({
-        type: 'SYNC_STATE',
-        className: APP_STATE.className,
-        students: APP_STATE.students,
-        questionIndex: APP_STATE.currentQuestionIndex
-      });
+      // ONLY broadcast if explicitly allowed AND this device is the Host (Laptop)
+      // Never broadcast from scanner or during incoming sync to prevent infinite ping-pong loop!
+      if (broadcast && APP_STATE.role !== 'scanner') {
+        broadcastSyncMessage({
+          type: 'SYNC_STATE',
+          className: APP_STATE.className,
+          students: APP_STATE.students,
+          questionIndex: APP_STATE.currentQuestionIndex
+        });
+      }
     }
 
     // --- 4C. REALTIME PHONE <-> LAPTOP SYNC ENGINE ---
@@ -1324,23 +1329,33 @@
           break;
 
         case 'SYNC_STATE':
-          if (msg.questionIndex !== undefined) {
+          if (msg.questionIndex !== undefined && msg.questionIndex !== APP_STATE.currentQuestionIndex) {
             APP_STATE.currentQuestionIndex = msg.questionIndex;
             renderHostQuestion();
           }
           let rosterChanged = false;
-          if (msg.className) {
+          if (msg.className && msg.className !== APP_STATE.className) {
             APP_STATE.className = msg.className;
             rosterChanged = true;
           }
           if (Array.isArray(msg.students) && msg.students.length > 0) {
-            APP_STATE.students = JSON.parse(JSON.stringify(msg.students));
-            rosterChanged = true;
+            const currentStr = JSON.stringify(APP_STATE.students);
+            const incomingStr = JSON.stringify(msg.students);
+            // Only update if the roster is ACTUALLY different to prevent infinite loops!
+            if (currentStr !== incomingStr) {
+              APP_STATE.students = JSON.parse(incomingStr);
+              rosterChanged = true;
+            }
           }
           if (rosterChanged) {
             saveClassToStorage();
-            refreshAllClassViews();
-            showToast(`Đã đồng bộ ${APP_STATE.students.length} học sinh của ${APP_STATE.className}!`, 'success');
+            // Pass broadcast = false so we NEVER echo back to the sender!
+            refreshAllClassViews(false);
+            // Show toast AT MOST ONCE during a session to prevent annoying repetitive popups
+            if (!APP_STATE.hasShownRosterToast) {
+              APP_STATE.hasShownRosterToast = true;
+              showToast(`Đã đồng bộ ${APP_STATE.students.length} học sinh của ${APP_STATE.className}!`, 'success');
+            }
           }
           updateSyncStatus(true);
           break;
@@ -1362,7 +1377,7 @@
 
         case 'CLASS_UPDATED':
           loadClassFromStorage();
-          refreshAllClassViews();
+          refreshAllClassViews(false);
           break;
       }
     }
@@ -2584,6 +2599,7 @@
       const btnPhoneReqSync = document.getElementById('btn-phone-req-sync');
       if (btnPhoneReqSync) {
         btnPhoneReqSync.addEventListener('click', () => {
+          APP_STATE.hasShownRosterToast = false; // allow toast on manual click
           broadcastSyncMessage({ type: 'REQUEST_CLASS_SYNC' });
           showToast("Đang gửi yêu cầu lấy danh sách lớp từ Laptop...", 'info');
         });
