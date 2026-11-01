@@ -378,6 +378,14 @@
             <select id="select-camera-device" class="px-3 py-2 rounded-xl text-xs font-bold border border-indigo-200 bg-white text-slate-700 focus:ring-2 focus:ring-indigo-500 max-w-[200px] shadow-2xs">
               <option value="">📷 Chọn Camera Laptop/ĐT...</option>
             </select>
+
+            <!-- Quick Switch to Back/Front Camera -->
+            <button type="button" id="btn-switch-back-cam" title="Bật camera sau trên điện thoại (để quét bài học sinh)" class="px-3 py-2 rounded-xl text-xs sm:text-sm font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-center gap-1 shadow-2xs">
+              📷 Camera Sau
+            </button>
+            <button type="button" id="btn-switch-front-cam" title="Bật webcam laptop hoặc camera trước" class="px-3 py-2 rounded-xl text-xs sm:text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors flex items-center gap-1 shadow-2xs">
+              💻 Webcam Laptop
+            </button>
             <!-- Hidden file inputs for snapshot & upload -->
             <input type="file" id="input-camera-snapshot" accept="image/*" capture="environment" class="hidden">
             <input type="file" id="input-upload-photo" accept="image/*" class="hidden">
@@ -431,10 +439,10 @@
                 <div class="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mx-auto text-2xl border border-slate-700">
                   📷
                 </div>
-                <div>
+                <div id="camera-placeholder-text">
                   <p class="font-bold text-white text-base">Camera đang tắt</p>
-                  <p class="text-xs text-slate-400 max-w-sm mt-1">
-                    Bấm "Bật Camera" ở trên để quét trực tiếp thẻ học sinh, hoặc chuyển sang tab "Giả Lập Lớp Học" để thử nghiệm ngay!
+                  <p class="text-xs text-slate-400 max-w-sm mt-1 mx-auto">
+                    Bấm "Bật Camera" ở trên hoặc chọn camera laptop từ ô danh sách để quét thẻ học sinh tự động.
                   </p>
                 </div>
               </div>
@@ -2611,9 +2619,25 @@
       if (selectCameraDevice) {
         selectCameraDevice.addEventListener('change', (e) => {
           selectedCameraDeviceId = e.target.value;
-          if (APP_STATE.cameraActive) {
-            startCamera(); // restart with newly selected camera
+          if (selectedCameraDeviceId) {
+            startCamera(null, selectedCameraDeviceId);
           }
+        });
+      }
+
+      // Quick Switch to Back Camera (Phone)
+      const btnSwitchBack = document.getElementById('btn-switch-back-cam');
+      if (btnSwitchBack) {
+        btnSwitchBack.addEventListener('click', () => {
+          startCamera('environment', '');
+        });
+      }
+
+      // Quick Switch to Front/Webcam (Laptop)
+      const btnSwitchFront = document.getElementById('btn-switch-front-cam');
+      if (btnSwitchFront) {
+        btnSwitchFront.addEventListener('click', () => {
+          startCamera('user', '');
         });
       }
 
